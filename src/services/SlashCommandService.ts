@@ -691,6 +691,373 @@ Make the question test understanding, not just recall. Be concise.`
       }
     });
 
+    // /write - Writing copilot with action and style
+    this.register({
+      name: 'write',
+      aliases: ['w', 'copilot'],
+      description: 'AI writing assistance with style options',
+      usage: '/write <action> [style] <text>',
+      execute: async (args, plugin) => {
+        if (!plugin.writingCopilot) {
+          return { content: '❌ Writing Copilot service not available.', type: 'error' };
+        }
+
+        const actions = ['continue', 'rewrite', 'expand', 'condense', 'improve', 'proofread', 'outline', 'brainstorm'];
+        const styles = ['formal', 'casual', 'academic', 'creative', 'technical', 'concise'];
+
+        if (!args.trim()) {
+          return {
+            content: `## Writing Copilot\n\n**Actions:** ${actions.join(', ')}\n**Styles:** ${styles.join(', ')}\n\n**Usage:** \`/write <action> [style] <text>\`\n\nExample: \`/write rewrite formal This is my text\``,
+            type: 'response'
+          };
+        }
+
+        const parts = args.trim().split(/\s+/);
+        const action = parts[0].toLowerCase();
+
+        if (!actions.includes(action)) {
+          return {
+            content: `❌ Unknown action: ${action}\n\nAvailable: ${actions.join(', ')}`,
+            type: 'error'
+          };
+        }
+
+        let style = 'casual';
+        let textStart = 1;
+
+        if (parts.length > 1 && styles.includes(parts[1].toLowerCase())) {
+          style = parts[1].toLowerCase();
+          textStart = 2;
+        }
+
+        let text = parts.slice(textStart).join(' ');
+
+        // If no text, try to get from selection or active note
+        if (!text) {
+          const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+          if (view) {
+            text = view.editor.getSelection() || '';
+          }
+          if (!text) {
+            const noteContent = await plugin.vault.getActiveNoteContent();
+            text = noteContent?.substring(0, 2000) || '';
+          }
+        }
+
+        if (!text) {
+          return { content: '❌ No text provided and no content in active note.', type: 'error' };
+        }
+
+        try {
+          const result = await plugin.writingCopilot.performAction(
+            action as any,
+            { text },
+            { style: style as any }
+          );
+
+          let response = `## Writing Result (${action} - ${style})\n\n${result.text}`;
+
+          if (result.metadata) {
+            response += `\n\n---\n*Words: ${result.metadata.wordCountBefore} → ${result.metadata.wordCountAfter}*`;
+          }
+
+          return { content: response, type: 'response' };
+        } catch (e) {
+          return { content: `❌ Writing action failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /continue - Smart continue writing
+    this.register({
+      name: 'continue',
+      aliases: ['cont', 'c'],
+      description: 'Continue writing from current text',
+      usage: '/continue',
+      execute: async (args, plugin) => {
+        if (!plugin.writingCopilot) {
+          return { content: '❌ Writing Copilot service not available.', type: 'error' };
+        }
+
+        let text = args.trim();
+
+        if (!text) {
+          const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+          if (view) {
+            const cursor = view.editor.getCursor();
+            text = view.editor.getRange({ line: 0, ch: 0 }, cursor);
+          }
+        }
+
+        if (!text) {
+          return { content: '❌ No text to continue from. Place cursor in your note or provide text.', type: 'error' };
+        }
+
+        try {
+          const result = await plugin.writingCopilot.smartContinue(text);
+
+          return {
+            content: `## Continuation\n\n${result.text}\n\n---\n*Style: ${result.metadata?.style}, Words: ${result.metadata?.wordCountAfter}*`,
+            type: 'response'
+          };
+        } catch (e) {
+          return { content: `❌ Continue failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /proofread - Detailed proofreading
+    this.register({
+      name: 'proofread',
+      aliases: ['proof', 'check'],
+      description: 'Proofread text with detailed feedback',
+      usage: '/proofread [text]',
+      execute: async (args, plugin) => {
+        if (!plugin.writingCopilot) {
+          return { content: '❌ Writing Copilot service not available.', type: 'error' };
+        }
+
+        let text = args.trim();
+
+        if (!text) {
+          const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+          if (view) {
+            text = view.editor.getSelection();
+          }
+        }
+
+        if (!text) {
+          return { content: '❌ No text to proofread. Select text or provide content.', type: 'error' };
+        }
+
+        try {
+          const result = await plugin.writingCopilot.proofreadDetailed(text);
+
+          let response = `## Proofread Result\n\n**Score:** ${result.score}/100\n\n`;
+          response += `### Corrected Text\n\n${result.correctedText}\n\n`;
+
+          if (result.issues.length > 0) {
+            response += `### Issues Found (${result.issues.length})\n\n`;
+            for (const issue of result.issues) {
+              const emoji = { grammar: '📝', spelling: '🔤', style: '✨', clarity: '💡' }[issue.type] || '•';
+              response += `${emoji} **${issue.type}:** "${issue.original}" → "${issue.suggestion}"\n`;
+              response += `   *${issue.explanation}*\n\n`;
+            }
+          } else {
+            response += `✅ No issues found!`;
+          }
+
+          return { content: response, type: 'response' };
+        } catch (e) {
+          return { content: `❌ Proofread failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /outline - Generate outline
+    this.register({
+      name: 'outline',
+      aliases: ['toc', 'structure'],
+      description: 'Generate an outline for a topic',
+      usage: '/outline [style] <topic>',
+      execute: async (args, plugin) => {
+        if (!plugin.writingCopilot) {
+          return { content: '❌ Writing Copilot service not available.', type: 'error' };
+        }
+
+        const styles = ['academic', 'blog', 'documentation', 'presentation'];
+        const parts = args.trim().split(/\s+/);
+
+        if (parts.length === 0 || !args.trim()) {
+          return {
+            content: `## Outline Generator\n\n**Styles:** ${styles.join(', ')}\n\n**Usage:** \`/outline [style] <topic>\`\n\nExample: \`/outline blog Building a PKM system\``,
+            type: 'response'
+          };
+        }
+
+        let style: 'academic' | 'blog' | 'documentation' | 'presentation' = 'blog';
+        let topic = args.trim();
+
+        if (styles.includes(parts[0].toLowerCase())) {
+          style = parts[0].toLowerCase() as any;
+          topic = parts.slice(1).join(' ');
+        }
+
+        if (!topic) {
+          return { content: '❌ Please provide a topic.', type: 'error' };
+        }
+
+        try {
+          const outline = await plugin.writingCopilot.generateOutline(topic, { style });
+
+          return {
+            content: `## Outline: ${topic}\n\n*Style: ${style}*\n\n${outline}`,
+            type: 'response'
+          };
+        } catch (e) {
+          return { content: `❌ Outline generation failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /briefing - Daily briefing
+    this.register({
+      name: 'briefing',
+      aliases: ['daily', 'today'],
+      description: 'Generate your daily briefing',
+      usage: '/briefing',
+      execute: async (args, plugin) => {
+        if (!plugin.agentOrchestrator) {
+          return { content: '❌ Agent Orchestrator service not available.', type: 'error' };
+        }
+
+        try {
+          new Notice('Generating daily briefing...');
+          const briefing = await plugin.agentOrchestrator.generateDailyBriefing();
+
+          return { content: briefing, type: 'response' };
+        } catch (e) {
+          return { content: `❌ Briefing generation failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /reason - Deep reasoning query
+    this.register({
+      name: 'reason',
+      aliases: ['think', 'analyze'],
+      description: 'Deep reasoning with multi-step analysis',
+      usage: '/reason <complex question>',
+      execute: async (args, plugin) => {
+        if (!plugin.agentOrchestrator) {
+          return { content: '❌ Agent Orchestrator service not available.', type: 'error' };
+        }
+
+        if (!args.trim()) {
+          return {
+            content: `## Deep Reasoning\n\nAsk complex questions that require multi-step analysis.\n\n**Usage:** \`/reason What connections exist between my notes on X and Y?\``,
+            type: 'response'
+          };
+        }
+
+        try {
+          new Notice('Processing with reasoning agent...');
+          const result = await plugin.agentOrchestrator.runReasoningQuery(args.trim());
+
+          return {
+            content: `## Reasoning Result\n\n**Query:** ${args.trim()}\n\n---\n\n${result}`,
+            type: 'response'
+          };
+        } catch (e) {
+          return { content: `❌ Reasoning failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /transform - Transform text format
+    this.register({
+      name: 'transform',
+      aliases: ['convert', 'format'],
+      description: 'Transform text between formats',
+      usage: '/transform <from> to <to> [text]',
+      execute: async (args, plugin) => {
+        if (!plugin.writingCopilot) {
+          return { content: '❌ Writing Copilot service not available.', type: 'error' };
+        }
+
+        const formats = ['prose', 'bullets', 'numbered', 'table', 'headers'];
+
+        if (!args.trim()) {
+          return {
+            content: `## Text Transformer\n\n**Formats:** ${formats.join(', ')}\n\n**Usage:** \`/transform <from> to <to> [text]\`\n\nExample: \`/transform prose to bullets\``,
+            type: 'response'
+          };
+        }
+
+        const match = args.match(/^(\w+)\s+to\s+(\w+)\s*([\s\S]*)?$/i);
+        if (!match) {
+          return { content: '❌ Usage: `/transform <from> to <to> [text]`', type: 'error' };
+        }
+
+        const [, from, to, providedText] = match;
+
+        if (!formats.includes(from.toLowerCase()) || !formats.includes(to.toLowerCase())) {
+          return { content: `❌ Invalid format. Available: ${formats.join(', ')}`, type: 'error' };
+        }
+
+        let text = providedText?.trim() || '';
+
+        if (!text) {
+          const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+          if (view) {
+            text = view.editor.getSelection();
+          }
+        }
+
+        if (!text) {
+          return { content: '❌ No text provided. Select text or provide content.', type: 'error' };
+        }
+
+        try {
+          const result = await plugin.writingCopilot.transformFormat(
+            text,
+            from.toLowerCase() as any,
+            to.toLowerCase() as any
+          );
+
+          return {
+            content: `## Transformed (${from} → ${to})\n\n${result}`,
+            type: 'response'
+          };
+        } catch (e) {
+          return { content: `❌ Transform failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /autocomplete - Get completion suggestions
+    this.register({
+      name: 'autocomplete',
+      aliases: ['complete', 'suggest'],
+      description: 'Get auto-completion suggestions',
+      usage: '/autocomplete',
+      execute: async (args, plugin) => {
+        if (!plugin.writingCopilot) {
+          return { content: '❌ Writing Copilot service not available.', type: 'error' };
+        }
+
+        const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view) {
+          return { content: '❌ No active editor.', type: 'error' };
+        }
+
+        const cursor = view.editor.getCursor();
+        const textBefore = view.editor.getRange({ line: 0, ch: 0 }, cursor);
+        const textAfter = view.editor.getRange(cursor, { line: view.editor.lineCount(), ch: 0 });
+
+        if (!textBefore.trim()) {
+          return { content: '❌ No text before cursor to complete from.', type: 'error' };
+        }
+
+        try {
+          const completions = await plugin.writingCopilot.autoComplete(textBefore, textAfter);
+
+          if (completions.length === 0) {
+            return { content: '🤔 No completions generated.', type: 'response' };
+          }
+
+          let response = `## Completions\n\nChoose one to insert:\n\n`;
+          for (let i = 0; i < completions.length; i++) {
+            response += `### Option ${i + 1}\n${completions[i]}\n\n`;
+          }
+
+          return { content: response, type: 'response' };
+        } catch (e) {
+          return { content: `❌ Autocomplete failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
     // /help - Show available commands
     this.register({
       name: 'help',

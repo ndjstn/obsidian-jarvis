@@ -8,6 +8,9 @@ import { WebResearchService } from './services/WebResearchService';
 import { SlashCommandService } from './services/SlashCommandService';
 import { ContextMenuService } from './services/ContextMenuService';
 import { KnowledgeGraphService } from './services/KnowledgeGraphService';
+import { getErrorService, ErrorHandlingService } from './services/ErrorHandlingService';
+import { AgentOrchestrator } from './services/AgentOrchestrator';
+import { WritingCopilotService } from './services/WritingCopilotService';
 
 interface JarvisSettings {
   ollamaEndpoint: string;
@@ -43,12 +46,16 @@ export default class JarvisPlugin extends Plugin {
   slashCommands: SlashCommandService;
   contextMenu: ContextMenuService;
   knowledgeGraph: KnowledgeGraphService;
+  errorService: ErrorHandlingService;
+  agentOrchestrator: AgentOrchestrator;
+  writingCopilot: WritingCopilotService;
   statusBarItem: HTMLElement;
 
   async onload() {
     await this.loadSettings();
 
-    // Initialize services
+    // Initialize core services
+    this.errorService = getErrorService();
     this.ollama = new OllamaService(this.settings);
     this.vault = new VaultService(this.app);
     this.embedding = new EmbeddingService(this.ollama, this.vault, this.app);
@@ -57,6 +64,17 @@ export default class JarvisPlugin extends Plugin {
     this.slashCommands = new SlashCommandService(this);
     this.contextMenu = new ContextMenuService(this);
     this.knowledgeGraph = new KnowledgeGraphService(this);
+
+    // Initialize advanced AI services
+    this.agentOrchestrator = new AgentOrchestrator(this);
+    this.writingCopilot = new WritingCopilotService(this);
+
+    // Register error callback for notifications
+    this.errorService.onError((error) => {
+      if (error.severity === 'critical' || error.severity === 'high') {
+        this.errorService.notifyError(error);
+      }
+    });
 
     // Initialize embedding index
     this.embedding.initialize().catch(err => {
@@ -128,6 +146,43 @@ export default class JarvisPlugin extends Plugin {
       callback: () => this.clipPageToNote()
     });
 
+    this.addCommand({
+      id: 'jarvis-daily-briefing',
+      name: 'Generate Daily Briefing',
+      callback: () => this.generateDailyBriefing()
+    });
+
+    this.addCommand({
+      id: 'jarvis-continue-writing',
+      name: 'Continue Writing',
+      hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: 'c' }],
+      callback: () => this.continueWriting()
+    });
+
+    this.addCommand({
+      id: 'jarvis-proofread',
+      name: 'Proofread Selection',
+      callback: () => this.proofreadSelection()
+    });
+
+    this.addCommand({
+      id: 'jarvis-rewrite-formal',
+      name: 'Rewrite Selection (Formal)',
+      callback: () => this.rewriteSelection('formal')
+    });
+
+    this.addCommand({
+      id: 'jarvis-rewrite-casual',
+      name: 'Rewrite Selection (Casual)',
+      callback: () => this.rewriteSelection('casual')
+    });
+
+    this.addCommand({
+      id: 'jarvis-reasoning',
+      name: 'Deep Reasoning Query',
+      callback: () => this.deepReasoningQuery()
+    });
+
     // Add settings tab
     this.addSettingTab(new JarvisSettingTab(this.app, this));
 
@@ -159,6 +214,8 @@ export default class JarvisPlugin extends Plugin {
     this.pageAssist = new PageAssistService(this.ollama);
     this.webResearch = new WebResearchService(this.ollama);
     this.slashCommands = new SlashCommandService(this);
+    this.agentOrchestrator = new AgentOrchestrator(this);
+    this.writingCopilot = new WritingCopilotService(this);
   }
 
   async activateView() {
@@ -312,6 +369,166 @@ export default class JarvisPlugin extends Plugin {
     }
   }
 
+  async generateDailyBriefing() {
+    this.updateStatusBar('Generating briefing...');
+    new Notice('Generating daily briefing...');
+
+    try {
+      const briefing = await this.agentOrchestrator.generateDailyBriefing();
+
+      // Create a new note with the briefing
+      const date = new Date().toISOString().split('T')[0];
+      const path = `0-Inbox/Daily-Briefing-${date}.md`;
+
+      await this.vault.writeFile(path, briefing);
+      new Notice(`Daily briefing created: ${path}`);
+      this.updateStatusBar('Ready');
+
+      // Open the briefing note
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file && file instanceof TFile) {
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+      }
+    } catch (error) {
+      new Notice('Failed to generate daily briefing');
+      console.error(error);
+      this.updateStatusBar('Ready');
+    }
+  }
+
+  async continueWriting() {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) {
+      new Notice('No active markdown view');
+      return;
+    }
+
+    const editor = view.editor;
+    const cursor = editor.getCursor();
+    const textBefore = editor.getRange({ line: 0, ch: 0 }, cursor);
+
+    if (!textBefore.trim()) {
+      new Notice('No text to continue from');
+      return;
+    }
+
+    this.updateStatusBar('Writing...');
+
+    try {
+      const result = await this.writingCopilot.smartContinue(textBefore);
+
+      // Insert the continuation at cursor position
+      editor.replaceRange(result.text, cursor);
+
+      new Notice(`Added ${result.metadata?.wordCountAfter} words`);
+      this.updateStatusBar('Ready');
+    } catch (error) {
+      new Notice('Failed to continue writing');
+      console.error(error);
+      this.updateStatusBar('Ready');
+    }
+  }
+
+  async proofreadSelection() {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) {
+      new Notice('No active markdown view');
+      return;
+    }
+
+    const selection = view.editor.getSelection();
+    if (!selection) {
+      new Notice('No text selected');
+      return;
+    }
+
+    this.updateStatusBar('Proofreading...');
+
+    try {
+      const result = await this.writingCopilot.proofreadDetailed(selection);
+
+      // Replace selection with corrected text
+      view.editor.replaceSelection(result.correctedText);
+
+      // Show summary of changes
+      const issueCount = result.issues.length;
+      new Notice(`Proofread complete: ${issueCount} issue(s) fixed. Score: ${result.score}/100`);
+      this.updateStatusBar('Ready');
+    } catch (error) {
+      new Notice('Failed to proofread');
+      console.error(error);
+      this.updateStatusBar('Ready');
+    }
+  }
+
+  async rewriteSelection(style: 'formal' | 'casual') {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) {
+      new Notice('No active markdown view');
+      return;
+    }
+
+    const selection = view.editor.getSelection();
+    if (!selection) {
+      new Notice('No text selected');
+      return;
+    }
+
+    this.updateStatusBar(`Rewriting (${style})...`);
+
+    try {
+      const result = await this.writingCopilot.performAction('rewrite', { text: selection }, { style });
+
+      view.editor.replaceSelection(result.text);
+      new Notice(`Rewritten in ${style} style`);
+      this.updateStatusBar('Ready');
+    } catch (error) {
+      new Notice('Failed to rewrite');
+      console.error(error);
+      this.updateStatusBar('Ready');
+    }
+  }
+
+  async deepReasoningQuery() {
+    // Open modal for reasoning query
+    const query = await this.promptForQuery();
+    if (!query) return;
+
+    this.updateStatusBar('Reasoning...');
+    new Notice('Processing complex query with reasoning agent...');
+
+    try {
+      const result = await this.agentOrchestrator.runReasoningQuery(query);
+
+      // Show result in Jarvis view
+      await this.activateView();
+
+      // Create a note with the reasoning result
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const path = `0-Inbox/reasoning-${timestamp}.md`;
+
+      const content = `# Reasoning Query\n\n**Query:** ${query}\n\n---\n\n${result}`;
+      await this.vault.writeFile(path, content);
+
+      new Notice('Reasoning complete! Check the new note.');
+      this.updateStatusBar('Ready');
+    } catch (error) {
+      new Notice('Reasoning query failed');
+      console.error(error);
+      this.updateStatusBar('Ready');
+    }
+  }
+
+  private async promptForQuery(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const modal = new QueryInputModal(this.app, (query) => {
+        resolve(query);
+      });
+      modal.open();
+    });
+  }
+
   private async promptForUrl(): Promise<string | null> {
     return new Promise((resolve) => {
       const modal = new UrlInputModal(this.app, (url) => {
@@ -375,6 +592,72 @@ class UrlInputModal extends Modal {
     });
 
     input.focus();
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+class QueryInputModal extends Modal {
+  private onSubmit: (query: string | null) => void;
+
+  constructor(app: App, onSubmit: (query: string | null) => void) {
+    super(app);
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl('h2', { text: 'Deep Reasoning Query' });
+    contentEl.createEl('p', {
+      text: 'Ask a complex question that requires multi-step reasoning and vault analysis.',
+      cls: 'jarvis-query-desc'
+    });
+
+    const inputContainer = contentEl.createDiv({ cls: 'jarvis-query-input-container' });
+    const textarea = inputContainer.createEl('textarea', {
+      placeholder: 'e.g., "What connections exist between my notes on machine learning and my project ideas?"',
+      cls: 'jarvis-query-input'
+    });
+    textarea.style.width = '100%';
+    textarea.style.minHeight = '100px';
+    textarea.style.padding = '8px';
+    textarea.style.marginBottom = '16px';
+    textarea.style.resize = 'vertical';
+
+    const buttonContainer = contentEl.createDiv({ cls: 'jarvis-query-buttons' });
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.gap = '8px';
+    buttonContainer.style.justifyContent = 'flex-end';
+
+    const cancelBtn = buttonContainer.createEl('button', { text: 'Cancel' });
+    cancelBtn.addEventListener('click', () => {
+      this.close();
+      this.onSubmit(null);
+    });
+
+    const submitBtn = buttonContainer.createEl('button', { text: 'Analyze', cls: 'mod-cta' });
+    submitBtn.addEventListener('click', () => {
+      const query = textarea.value.trim();
+      if (query) {
+        this.close();
+        this.onSubmit(query);
+      }
+    });
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.ctrlKey) {
+        const query = textarea.value.trim();
+        if (query) {
+          this.close();
+          this.onSubmit(query);
+        }
+      }
+    });
+
+    textarea.focus();
   }
 
   onClose() {
