@@ -1,7 +1,9 @@
-import { App, Plugin, PluginSettingTab, Setting, WorkspaceLeaf, Notice, MarkdownView } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, WorkspaceLeaf, Notice, MarkdownView, Modal, TFile } from 'obsidian';
 import { JarvisView, JARVIS_VIEW_TYPE } from './ui/JarvisView';
 import { OllamaService } from './services/OllamaService';
 import { VaultService } from './services/VaultService';
+import { EmbeddingService } from './services/EmbeddingService';
+import { PageAssistService } from './services/PageAssistService';
 
 interface JarvisSettings {
   ollamaEndpoint: string;
@@ -31,6 +33,8 @@ export default class JarvisPlugin extends Plugin {
   settings: JarvisSettings;
   ollama: OllamaService;
   vault: VaultService;
+  embedding: EmbeddingService;
+  pageAssist: PageAssistService;
   statusBarItem: HTMLElement;
 
   async onload() {
@@ -39,6 +43,13 @@ export default class JarvisPlugin extends Plugin {
     // Initialize services
     this.ollama = new OllamaService(this.settings);
     this.vault = new VaultService(this.app);
+    this.embedding = new EmbeddingService(this.ollama, this.vault, this.app);
+    this.pageAssist = new PageAssistService(this.ollama);
+
+    // Initialize embedding index
+    this.embedding.initialize().catch(err => {
+      console.error('Failed to initialize embedding index:', err);
+    });
 
     // Register the Jarvis view
     this.registerView(
@@ -86,6 +97,25 @@ export default class JarvisPlugin extends Plugin {
       callback: () => this.createTask()
     });
 
+    this.addCommand({
+      id: 'jarvis-rag-search',
+      name: 'RAG Search',
+      hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: 's' }],
+      callback: () => this.ragSearch()
+    });
+
+    this.addCommand({
+      id: 'jarvis-index-vault',
+      name: 'Index Vault for RAG',
+      callback: () => this.indexVault()
+    });
+
+    this.addCommand({
+      id: 'jarvis-clip-page',
+      name: 'Clip Web Page to Note',
+      callback: () => this.clipPageToNote()
+    });
+
     // Add settings tab
     this.addSettingTab(new JarvisSettingTab(this.app, this));
 
@@ -111,8 +141,10 @@ export default class JarvisPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
-    // Reinitialize Ollama with new settings
+    // Reinitialize services with new settings
     this.ollama = new OllamaService(this.settings);
+    this.embedding = new EmbeddingService(this.ollama, this.vault, this.app);
+    this.pageAssist = new PageAssistService(this.ollama);
   }
 
   async activateView() {
@@ -203,6 +235,137 @@ export default class JarvisPlugin extends Plugin {
     // Open modal for task creation
     await this.activateView();
     new Notice('Enter your task in the Jarvis panel');
+  }
+
+  async ragSearch() {
+    // Get current selection for search
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (view) {
+      const selection = view.editor.getSelection();
+      if (selection) {
+        // Could pre-populate search with selection
+      }
+    }
+
+    await this.activateView();
+    new Notice('Use RAG Search mode to search your vault semantically');
+  }
+
+  async indexVault() {
+    this.updateStatusBar('Indexing...');
+    new Notice('Starting vault indexing... This may take a while.');
+
+    try {
+      const count = await this.embedding.indexVault((current, total) => {
+        this.updateStatusBar(`Indexing ${current}/${total}`);
+      });
+      new Notice(`Indexed ${count} notes successfully!`);
+      this.updateStatusBar('Ready');
+    } catch (error) {
+      new Notice(`Indexing failed: ${error.message}`);
+      this.updateStatusBar('Index failed');
+      console.error('Indexing error:', error);
+    }
+  }
+
+  async clipPageToNote() {
+    // Prompt user for URL
+    const url = await this.promptForUrl();
+    if (!url) return;
+
+    this.updateStatusBar('Clipping...');
+    new Notice('Clipping page...');
+
+    try {
+      const noteContent = await this.pageAssist.createNoteFromPage(url);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const path = `0-Inbox/web-clip-${timestamp}.md`;
+
+      await this.vault.writeFile(path, noteContent);
+      new Notice(`Page clipped to ${path}`);
+      this.updateStatusBar('Ready');
+
+      // Open the new note
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file && file instanceof TFile) {
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+      }
+    } catch (error) {
+      new Notice(`Failed to clip page: ${error.message}`);
+      this.updateStatusBar('Clip failed');
+      console.error('Clip error:', error);
+    }
+  }
+
+  private async promptForUrl(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const modal = new UrlInputModal(this.app, (url) => {
+        resolve(url);
+      });
+      modal.open();
+    });
+  }
+}
+
+class UrlInputModal extends Modal {
+  private onSubmit: (url: string | null) => void;
+
+  constructor(app: App, onSubmit: (url: string | null) => void) {
+    super(app);
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl('h2', { text: 'Enter URL to clip' });
+
+    const inputContainer = contentEl.createDiv({ cls: 'jarvis-url-input-container' });
+    const input = inputContainer.createEl('input', {
+      type: 'text',
+      placeholder: 'https://example.com/article',
+      cls: 'jarvis-url-input'
+    });
+    input.style.width = '100%';
+    input.style.padding = '8px';
+    input.style.marginBottom = '16px';
+
+    const buttonContainer = contentEl.createDiv({ cls: 'jarvis-url-buttons' });
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.gap = '8px';
+    buttonContainer.style.justifyContent = 'flex-end';
+
+    const cancelBtn = buttonContainer.createEl('button', { text: 'Cancel' });
+    cancelBtn.addEventListener('click', () => {
+      this.close();
+      this.onSubmit(null);
+    });
+
+    const submitBtn = buttonContainer.createEl('button', { text: 'Clip', cls: 'mod-cta' });
+    submitBtn.addEventListener('click', () => {
+      const url = input.value.trim();
+      if (url) {
+        this.close();
+        this.onSubmit(url);
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const url = input.value.trim();
+        if (url) {
+          this.close();
+          this.onSubmit(url);
+        }
+      }
+    });
+
+    input.focus();
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
   }
 }
 

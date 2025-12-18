@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, MarkdownRenderer } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon, MarkdownRenderer, Notice } from 'obsidian';
 import type JarvisPlugin from '../main';
 import type { ChatMessage } from '../services/OllamaService';
 
@@ -8,6 +8,25 @@ interface ConversationMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+}
+
+// Helper to copy text to clipboard with visual feedback
+async function copyToClipboard(text: string, button: HTMLElement): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    const originalIcon = button.innerHTML;
+    button.innerHTML = '';
+    setIcon(button, 'check');
+    button.addClass('jarvis-copy-success');
+    new Notice('Copied to clipboard!');
+    setTimeout(() => {
+      button.innerHTML = '';
+      setIcon(button, 'copy');
+      button.removeClass('jarvis-copy-success');
+    }, 1500);
+  } catch {
+    new Notice('Failed to copy');
+  }
 }
 
 export class JarvisView extends ItemView {
@@ -54,6 +73,8 @@ export class JarvisView extends ItemView {
     this.modeSelect.createEl('option', { value: 'summarize', text: 'Summarize' });
     this.modeSelect.createEl('option', { value: 'task', text: 'Task' });
     this.modeSelect.createEl('option', { value: 'vision', text: 'Vision' });
+    this.modeSelect.createEl('option', { value: 'pageassist', text: 'Page Assist' });
+    this.modeSelect.createEl('option', { value: 'rag', text: 'RAG Search' });
 
     // Action buttons
     const actionBar = container.createDiv({ cls: 'jarvis-action-bar' });
@@ -71,7 +92,7 @@ export class JarvisView extends ItemView {
     this.chatContainer = container.createDiv({ cls: 'jarvis-chat-container' });
 
     // Welcome message
-    this.addSystemMessage('Hello! I\'m Jarvis, your AI assistant. How can I help you today?\n\n**Modes:**\n- **Chat**: General conversation\n- **Plan**: Break down goals into tasks\n- **Summarize**: Summarize notes or text\n- **Task**: Create TaskWarrior tasks\n- **Vision**: Analyze images');
+    this.addSystemMessage('Hello! I\'m Jarvis, your AI assistant. How can I help you today?\n\n**Modes:**\n- **Chat**: General conversation\n- **Plan**: Break down goals into tasks\n- **Summarize**: Summarize notes or text\n- **Task**: Create TaskWarrior tasks\n- **Vision**: Analyze images\n- **Page Assist**: Analyze web pages (enter URL + question)\n- **RAG Search**: Semantic search over your vault');
 
     // Input area
     this.inputContainer = container.createDiv({ cls: 'jarvis-input-container' });
@@ -185,6 +206,47 @@ export class JarvisView extends ItemView {
         max-width: 100%;
       }
 
+      .jarvis-message-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+
+      .jarvis-message-role {
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        opacity: 0.8;
+      }
+
+      .jarvis-copy-btn {
+        padding: 4px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        opacity: 0.5;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+      }
+
+      .jarvis-copy-btn:hover {
+        opacity: 1;
+        background: var(--background-modifier-hover);
+      }
+
+      .jarvis-copy-btn.jarvis-copy-success {
+        color: var(--color-green);
+        opacity: 1;
+      }
+
+      .jarvis-message-content {
+        line-height: 1.5;
+      }
+
       .jarvis-message-time {
         font-size: 10px;
         opacity: 0.7;
@@ -285,10 +347,23 @@ export class JarvisView extends ItemView {
       cls: `jarvis-message jarvis-message-${role}`
     });
 
+    // Message header with copy button
+    const headerEl = msgEl.createDiv({ cls: 'jarvis-message-header' });
+
+    const roleLabel = headerEl.createSpan({ cls: 'jarvis-message-role' });
+    roleLabel.setText(role === 'user' ? 'You' : 'Jarvis');
+
+    const copyBtn = headerEl.createEl('button', { cls: 'jarvis-copy-btn' });
+    setIcon(copyBtn, 'copy');
+    copyBtn.setAttribute('aria-label', 'Copy message');
+    copyBtn.addEventListener('click', () => copyToClipboard(content, copyBtn));
+
+    // Message content
+    const contentEl = msgEl.createDiv({ cls: 'jarvis-message-content' });
     if (role === 'assistant') {
-      MarkdownRenderer.renderMarkdown(content, msgEl, '', this.plugin);
+      MarkdownRenderer.renderMarkdown(content, contentEl, '', this.plugin);
     } else {
-      msgEl.createDiv({ text: content });
+      contentEl.createDiv({ text: content });
     }
 
     const timeEl = msgEl.createDiv({ cls: 'jarvis-message-time' });
@@ -331,6 +406,12 @@ export class JarvisView extends ItemView {
         case 'task':
           const taskCmd = await this.plugin.ollama.generateTaskWarriorCommand(content);
           response = `**TaskWarrior Command:**\n\`\`\`\n${taskCmd}\n\`\`\`\n\nCopy and run this command to create the task.`;
+          break;
+        case 'pageassist':
+          response = await this.handlePageAssist(content);
+          break;
+        case 'rag':
+          response = await this.handleRAGSearch(content);
           break;
         default:
           const messages: ChatMessage[] = this.buildConversationHistory();
@@ -431,6 +512,95 @@ Be concise, helpful, and format responses with Markdown when appropriate.`;
     };
 
     input.click();
+  }
+
+  private async handlePageAssist(content: string): Promise<string> {
+    // Parse URL and question from content
+    const urlMatch = content.match(/(https?:\/\/[^\s]+)/);
+
+    if (!urlMatch) {
+      return '**Page Assist Usage:**\n\nPlease include a URL in your message. Examples:\n- `https://example.com What is this about?`\n- `summarize https://article.com`\n- `https://docs.com What does it say about X?`';
+    }
+
+    const url = urlMatch[1];
+    const question = content.replace(url, '').trim();
+
+    if (!this.plugin.pageAssist) {
+      return '❌ Page Assist service not initialized. Please restart the plugin.';
+    }
+
+    try {
+      if (!question || question.toLowerCase().includes('summarize')) {
+        const summary = await this.plugin.pageAssist.summarizePage(url, 'bullets');
+        return `## Page Summary\n\n**URL:** ${url}\n\n${summary}`;
+      } else {
+        const answer = await this.plugin.pageAssist.askAboutPage(url, question);
+        return `## Answer\n\n**URL:** ${url}\n**Question:** ${question}\n\n${answer}`;
+      }
+    } catch (error) {
+      return `❌ Failed to analyze page: ${error.message}`;
+    }
+  }
+
+  private async handleRAGSearch(content: string): Promise<string> {
+    if (!this.plugin.embedding) {
+      return '❌ RAG service not initialized. Please restart the plugin.';
+    }
+
+    // Check for special commands
+    const lowerContent = content.toLowerCase();
+
+    if (lowerContent.includes('index') || lowerContent.includes('reindex')) {
+      this.addSystemMessage('🔄 Indexing vault... This may take a while.');
+      try {
+        const count = await this.plugin.embedding.indexVault((current, total) => {
+          // Progress updates could be shown here
+        });
+        return `✅ Indexed ${count} notes successfully!\n\nYou can now search your vault semantically.`;
+      } catch (error) {
+        return `❌ Indexing failed: ${error.message}`;
+      }
+    }
+
+    if (lowerContent === 'stats' || lowerContent === 'status') {
+      const stats = this.plugin.embedding.getIndexStats();
+      if (stats.totalDocuments === 0) {
+        return '📊 **RAG Index Status**\n\nNo notes indexed yet.\n\nType `index` to build the index.';
+      }
+      return `📊 **RAG Index Statistics**\n\n- **Indexed notes:** ${stats.totalDocuments}\n- **Embedding dimensions:** ${stats.averageEmbeddingSize.toFixed(0)}\n\nType \`index\` to refresh the index.`;
+    }
+
+    // Perform semantic search
+    try {
+      const results = await this.plugin.embedding.search(content, 5, 0.3);
+
+      if (results.length === 0) {
+        return '❌ No relevant notes found.\n\nTry different keywords or type `index` to rebuild the index.';
+      }
+
+      let response = `## Search Results for "${content}"\n\n`;
+
+      for (const result of results) {
+        const scorePercent = Math.round(result.score * 100);
+        response += `### [[${result.document.metadata.title}]] (${scorePercent}%)\n`;
+        response += `> ${result.snippet}\n\n`;
+      }
+
+      // Get AI-enhanced answer
+      const context = await this.plugin.embedding.getContextForQuery(content, 2000);
+      if (context) {
+        response += '---\n\n## AI Answer\n\n';
+        const aiResponse = await this.plugin.ollama.chat([
+          { role: 'system', content: 'Answer the question based on the provided notes. Be concise and reference notes using [[Note Name]] format.' },
+          { role: 'user', content: `${context}\n\nQuestion: ${content}` }
+        ]);
+        response += aiResponse;
+      }
+
+      return response;
+    } catch (error) {
+      return `❌ Search failed: ${error.message}`;
+    }
   }
 
   private clearConversation(): void {

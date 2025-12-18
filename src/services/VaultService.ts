@@ -326,4 +326,33 @@ ${content}
       totalLinks
     };
   }
+
+  // Read any file by path (for embedding index)
+  async readFile(path: string): Promise<string | null> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) {
+      return this.app.vault.read(file);
+    }
+    return null;
+  }
+
+  // Write file (for embedding index)
+  async writeFile(path: string, content: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) {
+      await this.app.vault.modify(file, content);
+    } else {
+      // Ensure parent folder exists
+      const folderPath = path.substring(0, path.lastIndexOf('/'));
+      if (folderPath) {
+        await this.ensureFolderExists(folderPath);
+      }
+      await this.app.vault.create(path, content);
+    }
+  }
+
+  // Get all markdown file paths
+  getAllMarkdownFiles(): string[] {
+    return this.getAllNotes().map(f => f.path);
+  }
 }
