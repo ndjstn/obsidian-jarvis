@@ -7,6 +7,7 @@ import { PageAssistService } from './services/PageAssistService';
 import { WebResearchService } from './services/WebResearchService';
 import { SlashCommandService } from './services/SlashCommandService';
 import { ContextMenuService } from './services/ContextMenuService';
+import { KnowledgeGraphService } from './services/KnowledgeGraphService';
 
 interface JarvisSettings {
   ollamaEndpoint: string;
@@ -41,6 +42,7 @@ export default class JarvisPlugin extends Plugin {
   webResearch: WebResearchService;
   slashCommands: SlashCommandService;
   contextMenu: ContextMenuService;
+  knowledgeGraph: KnowledgeGraphService;
   statusBarItem: HTMLElement;
 
   async onload() {
@@ -54,6 +56,7 @@ export default class JarvisPlugin extends Plugin {
     this.webResearch = new WebResearchService(this.ollama);
     this.slashCommands = new SlashCommandService(this);
     this.contextMenu = new ContextMenuService(this);
+    this.knowledgeGraph = new KnowledgeGraphService(this);
 
     // Initialize embedding index
     this.embedding.initialize().catch(err => {

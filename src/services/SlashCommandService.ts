@@ -402,6 +402,295 @@ Make the question test understanding, not just recall. Be concise.`
       }
     });
 
+    // /graph - Build and show graph stats
+    this.register({
+      name: 'graph',
+      aliases: ['g', 'stats'],
+      description: 'Build knowledge graph and show statistics',
+      usage: '/graph',
+      execute: async (args, plugin) => {
+        if (!plugin.knowledgeGraph) {
+          return { content: '❌ Knowledge Graph service not available.', type: 'error' };
+        }
+
+        const count = await plugin.knowledgeGraph.buildGraph();
+        const stats = plugin.knowledgeGraph.getStats();
+
+        let response = `## Knowledge Graph Statistics\n\n`;
+        response += `| Metric | Value |\n|--------|-------|\n`;
+        response += `| Total Notes | ${stats.totalNodes} |\n`;
+        response += `| Total Links | ${stats.totalEdges} |\n`;
+        response += `| Orphan Notes | ${stats.orphanCount} |\n`;
+        response += `| Clusters | ${stats.clusters} |\n`;
+        response += `| Avg Connections | ${stats.avgConnections.toFixed(1)} |\n`;
+
+        if (stats.mostConnected.length > 0) {
+          response += `\n### Most Connected Notes\n`;
+          for (const item of stats.mostConnected) {
+            const title = item.path.split('/').pop()?.replace('.md', '') || item.path;
+            response += `- [[${title}]] (${item.connections} connections)\n`;
+          }
+        }
+
+        return { content: response, type: 'response' };
+      }
+    });
+
+    // /orphans - Find orphan notes
+    this.register({
+      name: 'orphans',
+      aliases: ['lonely', 'unlinked'],
+      description: 'Find notes with no links',
+      usage: '/orphans',
+      execute: async (args, plugin) => {
+        if (!plugin.knowledgeGraph) {
+          return { content: '❌ Knowledge Graph service not available.', type: 'error' };
+        }
+
+        if (!plugin.knowledgeGraph.isGraphBuilt()) {
+          await plugin.knowledgeGraph.buildGraph();
+        }
+
+        const orphans = plugin.knowledgeGraph.findOrphans();
+
+        if (orphans.length === 0) {
+          return {
+            content: '✅ No orphan notes found! All your notes are connected.',
+            type: 'response'
+          };
+        }
+
+        let response = `## Orphan Notes (${orphans.length})\n\n`;
+        response += `These notes have no incoming or outgoing links:\n\n`;
+
+        for (const orphan of orphans.slice(0, 20)) {
+          response += `- [[${orphan.title}]]`;
+          if (orphan.tags.length > 0) {
+            response += ` ${orphan.tags.slice(0, 3).join(' ')}`;
+          }
+          response += `\n`;
+        }
+
+        if (orphans.length > 20) {
+          response += `\n*...and ${orphans.length - 20} more*`;
+        }
+
+        response += `\n\n💡 **Tip:** Consider linking these notes or archiving unused ones.`;
+
+        return { content: response, type: 'response' };
+      }
+    });
+
+    // /bridges - Find bridge notes
+    this.register({
+      name: 'bridges',
+      aliases: ['hubs', 'connectors'],
+      description: 'Find important connector notes',
+      usage: '/bridges',
+      execute: async (args, plugin) => {
+        if (!plugin.knowledgeGraph) {
+          return { content: '❌ Knowledge Graph service not available.', type: 'error' };
+        }
+
+        if (!plugin.knowledgeGraph.isGraphBuilt()) {
+          await plugin.knowledgeGraph.buildGraph();
+        }
+
+        const bridges = plugin.knowledgeGraph.findBridgeNotes(10);
+
+        if (bridges.length === 0) {
+          return {
+            content: '🔍 No bridge notes found. Your graph may need more connections.',
+            type: 'response'
+          };
+        }
+
+        let response = `## Bridge Notes\n\n`;
+        response += `These notes connect different parts of your knowledge:\n\n`;
+
+        for (const bridge of bridges) {
+          response += `### [[${bridge.title}]]\n`;
+          response += `- Links out: ${bridge.links.length} | Links in: ${bridge.backlinks.length}\n`;
+          if (bridge.tags.length > 0) {
+            response += `- Tags: ${bridge.tags.slice(0, 5).join(' ')}\n`;
+          }
+          response += `\n`;
+        }
+
+        response += `💡 **Tip:** These notes are valuable connectors. Keep them well-maintained!`;
+
+        return { content: response, type: 'response' };
+      }
+    });
+
+    // /path - Find path between two notes
+    this.register({
+      name: 'path',
+      aliases: ['connect', 'route'],
+      description: 'Find path between two notes',
+      usage: '/path <note1> to <note2>',
+      execute: async (args, plugin) => {
+        if (!plugin.knowledgeGraph) {
+          return { content: '❌ Knowledge Graph service not available.', type: 'error' };
+        }
+
+        if (!args.trim()) {
+          return {
+            content: '❌ Usage: `/path Note A to Note B`',
+            type: 'error'
+          };
+        }
+
+        // Parse "note1 to note2" format
+        const parts = args.split(/\s+to\s+/i);
+        if (parts.length !== 2) {
+          return {
+            content: '❌ Please use format: `/path Note A to Note B`',
+            type: 'error'
+          };
+        }
+
+        const [start, end] = parts.map(p => p.trim());
+
+        if (!plugin.knowledgeGraph.isGraphBuilt()) {
+          await plugin.knowledgeGraph.buildGraph();
+        }
+
+        const result = plugin.knowledgeGraph.findPath(start, end);
+
+        if (!result) {
+          return {
+            content: `❌ No path found between "${start}" and "${end}".\n\nThey may be in disconnected parts of your graph.`,
+            type: 'response'
+          };
+        }
+
+        let response = `## Path Found!\n\n`;
+        response += `**Length:** ${result.length} hop(s)\n\n`;
+        response += `### Route:\n`;
+
+        for (let i = 0; i < result.path.length; i++) {
+          const title = result.path[i].split('/').pop()?.replace('.md', '') || result.path[i];
+          response += `${i + 1}. [[${title}]]`;
+          if (i < result.path.length - 1) {
+            response += ` →`;
+          }
+          response += `\n`;
+        }
+
+        return { content: response, type: 'response' };
+      }
+    });
+
+    // /clusters - Show topic clusters
+    this.register({
+      name: 'clusters',
+      aliases: ['topics', 'groups'],
+      description: 'Show topic clusters in your vault',
+      usage: '/clusters',
+      execute: async (args, plugin) => {
+        if (!plugin.knowledgeGraph) {
+          return { content: '❌ Knowledge Graph service not available.', type: 'error' };
+        }
+
+        if (!plugin.knowledgeGraph.isGraphBuilt()) {
+          await plugin.knowledgeGraph.buildGraph();
+        }
+
+        const clusters = plugin.knowledgeGraph.findClusters();
+
+        if (clusters.length === 0) {
+          return {
+            content: '🔍 No clusters found. Your notes may all be connected or all separate.',
+            type: 'response'
+          };
+        }
+
+        let response = `## Knowledge Clusters (${clusters.length})\n\n`;
+
+        for (const cluster of clusters.slice(0, 10)) {
+          response += `### ${cluster.mainTopic} (${cluster.size} notes)\n`;
+          const sampleNotes = cluster.nodes.slice(0, 5).map(p => {
+            const title = p.split('/').pop()?.replace('.md', '') || p;
+            return `[[${title}]]`;
+          });
+          response += `${sampleNotes.join(', ')}`;
+          if (cluster.nodes.length > 5) {
+            response += ` *+${cluster.nodes.length - 5} more*`;
+          }
+          response += `\n\n`;
+        }
+
+        return { content: response, type: 'response' };
+      }
+    });
+
+    // /maintenance - Get vault maintenance report
+    this.register({
+      name: 'maintenance',
+      aliases: ['health', 'audit'],
+      description: 'Get vault health report',
+      usage: '/maintenance',
+      execute: async (args, plugin) => {
+        if (!plugin.knowledgeGraph) {
+          return { content: '❌ Knowledge Graph service not available.', type: 'error' };
+        }
+
+        if (!plugin.knowledgeGraph.isGraphBuilt()) {
+          await plugin.knowledgeGraph.buildGraph();
+        }
+
+        const report = plugin.knowledgeGraph.getMaintenanceReport();
+        const stats = plugin.knowledgeGraph.getStats();
+
+        let response = `## Vault Health Report\n\n`;
+
+        // Overall health score
+        const healthyRatio = report.wellConnected.length / stats.totalNodes;
+        const healthEmoji = healthyRatio > 0.7 ? '🟢' : healthyRatio > 0.4 ? '🟡' : '🔴';
+        response += `### Overall: ${healthEmoji} ${Math.round(healthyRatio * 100)}% healthy\n\n`;
+
+        response += `| Category | Count | % |\n|----------|-------|---|\n`;
+        response += `| ✅ Well Connected | ${report.wellConnected.length} | ${Math.round(report.wellConnected.length / stats.totalNodes * 100)}% |\n`;
+        response += `| ⚠️ Dead Ends | ${report.deadEnds.length} | ${Math.round(report.deadEnds.length / stats.totalNodes * 100)}% |\n`;
+        response += `| ⚠️ Sources Only | ${report.sources.length} | ${Math.round(report.sources.length / stats.totalNodes * 100)}% |\n`;
+        response += `| ❌ Orphans | ${report.orphans.length} | ${Math.round(report.orphans.length / stats.totalNodes * 100)}% |\n`;
+
+        if (report.deadEnds.length > 0) {
+          response += `\n### Dead Ends (notes with no outgoing links)\n`;
+          for (const node of report.deadEnds.slice(0, 5)) {
+            response += `- [[${node.title}]]\n`;
+          }
+          if (report.deadEnds.length > 5) {
+            response += `*...and ${report.deadEnds.length - 5} more*\n`;
+          }
+        }
+
+        if (report.sources.length > 0) {
+          response += `\n### Sources (notes with no incoming links)\n`;
+          for (const node of report.sources.slice(0, 5)) {
+            response += `- [[${node.title}]]\n`;
+          }
+          if (report.sources.length > 5) {
+            response += `*...and ${report.sources.length - 5} more*\n`;
+          }
+        }
+
+        response += `\n💡 **Recommendations:**\n`;
+        if (report.orphans.length > 0) {
+          response += `- Link or archive ${report.orphans.length} orphan note(s)\n`;
+        }
+        if (report.deadEnds.length > 0) {
+          response += `- Add outgoing links to ${report.deadEnds.length} dead-end note(s)\n`;
+        }
+        if (report.sources.length > 0) {
+          response += `- Reference ${report.sources.length} source note(s) from other notes\n`;
+        }
+
+        return { content: response, type: 'response' };
+      }
+    });
+
     // /help - Show available commands
     this.register({
       name: 'help',
