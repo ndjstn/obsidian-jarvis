@@ -373,32 +373,42 @@ Visible reasoning for complex problems.
 
 ## Implementation Roadmap (Updated)
 
-### Phase 1: Core Polish (Current)
+### Phase 1: Core Polish (v0.3.0) ✅
 - [x] Web Research
 - [x] Copy buttons
 - [x] Walkthroughs
-- [ ] Slash commands
-- [ ] Selection-based actions
-- [ ] Fix any bugs
+- [x] Slash commands (18+ commands)
+- [x] Selection-based actions (context menu)
 
-### Phase 2: Memory & Context
+### Phase 2: Knowledge Intelligence (v0.4.0) ✅
+- [x] Knowledge graph analysis
+- [x] Path finding between notes
+- [x] Orphan detection
+- [x] Bridge note identification
+- [x] Cluster discovery
+- [x] Vault health reports
+
+### Phase 3: AI Enhancement (v0.5.0) ✅
+- [x] Error handling with retries and circuit breaker
+- [x] Zod validation for data integrity
+- [x] LangGraph agent orchestration
+- [x] Multi-step reasoning agent
+- [x] Writing copilot (8 actions, 6 styles)
+- [x] Daily briefing generation
+- [x] Format transformation
+
+### Phase 4: Memory & Context (Next)
 - [ ] Long-term memory system
 - [ ] Conversation persistence
 - [ ] User fact extraction
 - [ ] Context-aware suggestions
 
-### Phase 3: Voice & Accessibility
+### Phase 5: Voice & Accessibility
 - [ ] Voice input (Whisper)
 - [ ] Voice output (TTS)
 - [ ] Screen awareness (opt-in)
 
-### Phase 4: Intelligence
-- [ ] Think Mode
-- [ ] Knowledge graph analysis
-- [ ] Multi-agent discussions
-- [ ] Writing copilot
-
-### Phase 5: Integration
+### Phase 6: Integration
 - [ ] MCP server connections
 - [ ] Mobile/SMS access
 - [ ] Calendar integration
@@ -432,5 +442,6 @@ Selected text → Jarvis:
 
 ---
 
-*Last updated: 2024-12-18*
+*Last updated: 2025-12-18*
+*Current version: v0.5.0*
 *Research sources: a16z-infra/companion-app, SingularityMan/vector_companion, yukiarimo/yuna-ai*
