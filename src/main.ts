@@ -4,6 +4,7 @@ import { OllamaService } from './services/OllamaService';
 import { VaultService } from './services/VaultService';
 import { EmbeddingService } from './services/EmbeddingService';
 import { PageAssistService } from './services/PageAssistService';
+import { WebResearchService } from './services/WebResearchService';
 
 interface JarvisSettings {
   ollamaEndpoint: string;
@@ -35,6 +36,7 @@ export default class JarvisPlugin extends Plugin {
   vault: VaultService;
   embedding: EmbeddingService;
   pageAssist: PageAssistService;
+  webResearch: WebResearchService;
   statusBarItem: HTMLElement;
 
   async onload() {
@@ -45,6 +47,7 @@ export default class JarvisPlugin extends Plugin {
     this.vault = new VaultService(this.app);
     this.embedding = new EmbeddingService(this.ollama, this.vault, this.app);
     this.pageAssist = new PageAssistService(this.ollama);
+    this.webResearch = new WebResearchService(this.ollama);
 
     // Initialize embedding index
     this.embedding.initialize().catch(err => {
@@ -145,6 +148,7 @@ export default class JarvisPlugin extends Plugin {
     this.ollama = new OllamaService(this.settings);
     this.embedding = new EmbeddingService(this.ollama, this.vault, this.app);
     this.pageAssist = new PageAssistService(this.ollama);
+    this.webResearch = new WebResearchService(this.ollama);
   }
 
   async activateView() {

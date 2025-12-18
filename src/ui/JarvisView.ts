@@ -69,6 +69,7 @@ export class JarvisView extends ItemView {
     const modeContainer = header.createDiv({ cls: 'jarvis-mode-container' });
     this.modeSelect = modeContainer.createEl('select', { cls: 'jarvis-mode-select' });
     this.modeSelect.createEl('option', { value: 'chat', text: 'Chat' });
+    this.modeSelect.createEl('option', { value: 'research', text: 'Research' });
     this.modeSelect.createEl('option', { value: 'plan', text: 'Plan' });
     this.modeSelect.createEl('option', { value: 'summarize', text: 'Summarize' });
     this.modeSelect.createEl('option', { value: 'task', text: 'Task' });
@@ -92,7 +93,7 @@ export class JarvisView extends ItemView {
     this.chatContainer = container.createDiv({ cls: 'jarvis-chat-container' });
 
     // Welcome message
-    this.addSystemMessage('Hello! I\'m Jarvis, your AI assistant. How can I help you today?\n\n**Modes:**\n- **Chat**: General conversation\n- **Plan**: Break down goals into tasks\n- **Summarize**: Summarize notes or text\n- **Task**: Create TaskWarrior tasks\n- **Vision**: Analyze images\n- **Page Assist**: Analyze web pages (enter URL + question)\n- **RAG Search**: Semantic search over your vault');
+    this.addSystemMessage('Hello! I\'m Jarvis, your AI assistant. How can I help you today?\n\n**Modes:**\n- **Chat**: General conversation\n- **Research**: Web search and fact-checking\n- **Plan**: Break down goals into tasks\n- **Summarize**: Summarize notes or text\n- **Task**: Create TaskWarrior tasks\n- **Vision**: Analyze images\n- **Page Assist**: Analyze web pages (enter URL + question)\n- **RAG Search**: Semantic search over your vault');
 
     // Input area
     this.inputContainer = container.createDiv({ cls: 'jarvis-input-container' });
@@ -397,6 +398,9 @@ export class JarvisView extends ItemView {
       let response: string;
 
       switch (mode) {
+        case 'research':
+          response = await this.handleResearch(content);
+          break;
         case 'plan':
           response = await this.plugin.ollama.decomposePlan(content);
           break;
@@ -512,6 +516,50 @@ Be concise, helpful, and format responses with Markdown when appropriate.`;
     };
 
     input.click();
+  }
+
+  private async handleResearch(content: string): Promise<string> {
+    if (!this.plugin.webResearch) {
+      return '❌ Web Research service not initialized. Please restart the plugin.';
+    }
+
+    const lowerContent = content.toLowerCase();
+
+    // Check for fact-check mode
+    if (lowerContent.startsWith('fact check') || lowerContent.startsWith('verify')) {
+      const claim = content.replace(/^(fact check|verify)\s*/i, '').trim();
+      try {
+        return await this.plugin.webResearch.factCheck(claim);
+      } catch (error) {
+        return `❌ Fact check failed: ${error.message}`;
+      }
+    }
+
+    // Regular research
+    try {
+      const result = await this.plugin.webResearch.research(content, 'thorough');
+
+      let response = `## Research: ${content}\n\n`;
+      response += result.summary;
+
+      if (result.sources.length > 0) {
+        response += '\n\n---\n\n### Sources\n';
+        for (const source of result.sources) {
+          response += `- [${source.title}](${source.url})\n`;
+        }
+      }
+
+      if (result.relatedQueries.length > 0) {
+        response += '\n### Related Topics\n';
+        for (const query of result.relatedQueries) {
+          response += `- ${query}\n`;
+        }
+      }
+
+      return response;
+    } catch (error) {
+      return `❌ Research failed: ${error.message}\n\nTry:\n- Check if SearXNG is running at localhost:8888\n- Or use a simpler query`;
+    }
   }
 
   private async handlePageAssist(content: string): Promise<string> {
