@@ -5,6 +5,8 @@ import { VaultService } from './services/VaultService';
 import { EmbeddingService } from './services/EmbeddingService';
 import { PageAssistService } from './services/PageAssistService';
 import { WebResearchService } from './services/WebResearchService';
+import { SlashCommandService } from './services/SlashCommandService';
+import { ContextMenuService } from './services/ContextMenuService';
 
 interface JarvisSettings {
   ollamaEndpoint: string;
@@ -37,6 +39,8 @@ export default class JarvisPlugin extends Plugin {
   embedding: EmbeddingService;
   pageAssist: PageAssistService;
   webResearch: WebResearchService;
+  slashCommands: SlashCommandService;
+  contextMenu: ContextMenuService;
   statusBarItem: HTMLElement;
 
   async onload() {
@@ -48,6 +52,8 @@ export default class JarvisPlugin extends Plugin {
     this.embedding = new EmbeddingService(this.ollama, this.vault, this.app);
     this.pageAssist = new PageAssistService(this.ollama);
     this.webResearch = new WebResearchService(this.ollama);
+    this.slashCommands = new SlashCommandService(this);
+    this.contextMenu = new ContextMenuService(this);
 
     // Initialize embedding index
     this.embedding.initialize().catch(err => {
@@ -149,6 +155,7 @@ export default class JarvisPlugin extends Plugin {
     this.embedding = new EmbeddingService(this.ollama, this.vault, this.app);
     this.pageAssist = new PageAssistService(this.ollama);
     this.webResearch = new WebResearchService(this.ollama);
+    this.slashCommands = new SlashCommandService(this);
   }
 
   async activateView() {

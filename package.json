@@ -1,7 +1,7 @@
 {
   "name": "obsidian-jarvis",
-  "version": "0.1.0",
-  "description": "AI assistant plugin for Obsidian with planning, vision, and local LLM support",
+  "version": "0.3.0",
+  "description": "PKM AI assistant plugin for Obsidian with slash commands, context menu, RAG search, and local LLM support",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",

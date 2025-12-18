@@ -1,9 +1,9 @@
 {
   "id": "obsidian-jarvis",
   "name": "Jarvis AI Assistant",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "minAppVersion": "1.5.0",
-  "description": "A comprehensive AI assistant with planning, vision, and task management powered by local LLMs",
+  "description": "A comprehensive PKM AI assistant with slash commands, context menu, RAG search, and local LLM support",
   "author": "uri",
   "authorUrl": "https://github.com/uri",
   "isDesktopOnly": true,

@@ -38,6 +38,7 @@ export class JarvisView extends ItemView {
   private conversation: ConversationMessage[] = [];
   private isProcessing = false;
   private modeSelect: HTMLSelectElement;
+  private autocompleteContainer: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: JarvisPlugin) {
     super(leaf);
@@ -93,7 +94,7 @@ export class JarvisView extends ItemView {
     this.chatContainer = container.createDiv({ cls: 'jarvis-chat-container' });
 
     // Welcome message
-    this.addSystemMessage('Hello! I\'m Jarvis, your AI assistant. How can I help you today?\n\n**Modes:**\n- **Chat**: General conversation\n- **Research**: Web search and fact-checking\n- **Plan**: Break down goals into tasks\n- **Summarize**: Summarize notes or text\n- **Task**: Create TaskWarrior tasks\n- **Vision**: Analyze images\n- **Page Assist**: Analyze web pages (enter URL + question)\n- **RAG Search**: Semantic search over your vault');
+    this.addSystemMessage('Hello! I\'m Jarvis, your PKM AI assistant. How can I help you today?\n\n**Quick Commands (type `/` for autocomplete):**\n- `/summarize` - Summarize current note\n- `/plan` - Break down a goal\n- `/similar` - Find related notes\n- `/link` - Suggest links\n- `/tag` - Suggest tags\n- `/research` - Web search\n- `/help` - Show all commands\n\n**Modes:** Chat • Research • Plan • RAG Search • Page Assist');
 
     // Input area
     this.inputContainer = container.createDiv({ cls: 'jarvis-input-container' });
@@ -106,8 +107,19 @@ export class JarvisView extends ItemView {
     this.inputField.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        this.hideAutocomplete();
         this.sendMessage();
+      } else if (e.key === 'Escape') {
+        this.hideAutocomplete();
+      } else if (e.key === 'Tab' && this.autocompleteContainer?.style.display !== 'none') {
+        e.preventDefault();
+        this.selectFirstSuggestion();
       }
+    });
+
+    // Slash command autocomplete
+    this.inputField.addEventListener('input', () => {
+      this.handleAutocomplete();
     });
 
     const buttonContainer = this.inputContainer.createDiv({ cls: 'jarvis-button-container' });
@@ -327,6 +339,41 @@ export class JarvisView extends ItemView {
       @keyframes jarvis-spin {
         to { transform: rotate(360deg); }
       }
+
+      .jarvis-autocomplete {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        right: 0;
+        background: var(--background-secondary);
+        border: 1px solid var(--background-modifier-border);
+        border-radius: 6px;
+        margin-bottom: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 100;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      .jarvis-autocomplete-item {
+        padding: 8px 12px;
+        cursor: pointer;
+        font-family: var(--font-monospace);
+        font-size: 13px;
+        border-bottom: 1px solid var(--background-modifier-border);
+      }
+
+      .jarvis-autocomplete-item:last-child {
+        border-bottom: none;
+      }
+
+      .jarvis-autocomplete-item:hover {
+        background: var(--background-modifier-hover);
+      }
+
+      .jarvis-input-container {
+        position: relative;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -389,6 +436,27 @@ export class JarvisView extends ItemView {
     this.isProcessing = true;
     this.sendButton.disabled = true;
     this.inputField.value = '';
+
+    // Check for slash commands first
+    if (this.plugin.slashCommands?.isSlashCommand(content)) {
+      this.addMessage('user', content);
+      const loadingEl = this.createLoadingMessage();
+
+      try {
+        const result = await this.plugin.slashCommands.execute(content);
+        loadingEl.remove();
+        this.addMessage('assistant', result.content);
+      } catch (error) {
+        loadingEl.remove();
+        this.addMessage('assistant', `❌ Command error: ${error.message}`);
+        console.error('Slash command error:', error);
+      } finally {
+        this.isProcessing = false;
+        this.sendButton.disabled = false;
+        this.inputField.focus();
+      }
+      return;
+    }
 
     this.addMessage('user', content);
     const loadingEl = this.createLoadingMessage();
@@ -674,6 +742,64 @@ Be concise, helpful, and format responses with Markdown when appropriate.`;
     const path = `0-Inbox/jarvis-conversation-${timestamp}.md`;
     await this.plugin.vault.createNote(path, content);
     this.addSystemMessage(`Conversation exported to: ${path}`);
+  }
+
+  private handleAutocomplete(): void {
+    const content = this.inputField.value;
+
+    // Only show autocomplete when typing a slash command at the start
+    if (!content.startsWith('/') || content.includes(' ')) {
+      this.hideAutocomplete();
+      return;
+    }
+
+    const partial = content.substring(1); // Remove leading /
+    if (!this.plugin.slashCommands) {
+      this.hideAutocomplete();
+      return;
+    }
+
+    const suggestions = this.plugin.slashCommands.getSuggestions(partial);
+
+    if (suggestions.length === 0) {
+      this.hideAutocomplete();
+      return;
+    }
+
+    this.showAutocomplete(suggestions);
+  }
+
+  private showAutocomplete(suggestions: string[]): void {
+    if (!this.autocompleteContainer) {
+      this.autocompleteContainer = this.inputContainer.createDiv({ cls: 'jarvis-autocomplete' });
+    }
+
+    this.autocompleteContainer.empty();
+    this.autocompleteContainer.style.display = 'block';
+
+    for (const suggestion of suggestions) {
+      const item = this.autocompleteContainer.createDiv({ cls: 'jarvis-autocomplete-item' });
+      item.setText(`/${suggestion}`);
+      item.addEventListener('click', () => {
+        this.inputField.value = `/${suggestion} `;
+        this.inputField.focus();
+        this.hideAutocomplete();
+      });
+    }
+  }
+
+  private hideAutocomplete(): void {
+    if (this.autocompleteContainer) {
+      this.autocompleteContainer.style.display = 'none';
+    }
+  }
+
+  private selectFirstSuggestion(): void {
+    if (!this.autocompleteContainer) return;
+    const firstItem = this.autocompleteContainer.querySelector('.jarvis-autocomplete-item') as HTMLElement;
+    if (firstItem) {
+      firstItem.click();
+    }
   }
 
   async onClose(): Promise<void> {
