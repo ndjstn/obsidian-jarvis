@@ -1,0 +1,27 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Build output (keep main.js for releases)
+*.js.map
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Test coverage
+coverage/
+
+# Obsidian
+data.json

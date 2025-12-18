@@ -1,0 +1,11 @@
+{
+  "id": "obsidian-jarvis",
+  "name": "Jarvis AI Assistant",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "A comprehensive AI assistant with planning, vision, and task management powered by local LLMs",
+  "author": "uri",
+  "authorUrl": "https://github.com/uri",
+  "isDesktopOnly": true,
+  "fundingUrl": ""
+}
