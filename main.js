@@ -344,7 +344,7 @@ From: ${u}`);l=[f[0]]}else l=[];u={url:u},c=new Lo({template:u,inputVariables:l,
 ${await this.plugin.ollama.generateTaskWarriorCommand(t)}
 \`\`\`
 
-Copy and run this command to create the task.`;break;case"pageassist":a=await this.handlePageAssist(t);break;case"rag":a=await this.handleRAGSearch(t);break;default:let c=await this.buildConversationHistory(t);c.push({role:"user",content:t}),a=await this.plugin.ollama.chat(c),this.extractFactsFromMessage(t)}n.remove(),this.addMessage("assistant",a)}catch(s){n.remove(),this.addMessage("assistant",`Error: ${s.message}`),console.error("Jarvis error:",s)}finally{this.isProcessing=!1,this.sendButton.disabled=!1,this.inputField.focus()}}async buildConversationHistory(t){let n=`You are Jarvis, an AI assistant integrated into Obsidian. You help with:
+Copy and run this command to create the task.`;break;case"pageassist":a=await this.handlePageAssist(t);break;case"rag":a=await this.handleRAGSearch(t);break;case"chat":let c=await this.buildConversationHistory(t);c.push({role:"user",content:t}),a=await this.plugin.ollama.chat(c),this.extractFactsFromMessage(t);break;default:a=await this.plugin.router.process(t)}n.remove(),this.addMessage("assistant",a)}catch(s){n.remove(),this.addMessage("assistant",`Error: ${s.message}`),console.error("Jarvis error:",s)}finally{this.isProcessing=!1,this.sendButton.disabled=!1,this.inputField.focus()}}async buildConversationHistory(t){let n=`You are Jarvis, an AI assistant integrated into Obsidian. You help with:
 - Answering questions about notes and knowledge
 - Planning and task management
 - Summarizing content

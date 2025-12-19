@@ -498,13 +498,15 @@ export class JarvisView extends ItemView {
         case 'rag':
           response = await this.handleRAGSearch(content);
           break;
-        default:
+        case 'chat':
           const messages: ChatMessage[] = await this.buildConversationHistory(content);
           messages.push({ role: 'user', content });
           response = await this.plugin.ollama.chat(messages);
-
-          // Extract facts from user message in background (non-blocking)
           this.extractFactsFromMessage(content);
+          break;
+        default:
+          // Default to smart router for intelligent processing
+          response = await this.plugin.router.process(content);
       }
 
       loadingEl.remove();
