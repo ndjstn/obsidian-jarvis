@@ -69,6 +69,8 @@ export class JarvisView extends ItemView {
     // Mode selector
     const modeContainer = header.createDiv({ cls: 'jarvis-mode-container' });
     this.modeSelect = modeContainer.createEl('select', { cls: 'jarvis-mode-select' });
+    this.modeSelect.createEl('option', { value: 'smart', text: '🧠 Smart' });
+    this.modeSelect.createEl('option', { value: 'dashboard', text: '📊 Dashboard' });
     this.modeSelect.createEl('option', { value: 'chat', text: 'Chat' });
     this.modeSelect.createEl('option', { value: 'research', text: 'Research' });
     this.modeSelect.createEl('option', { value: 'plan', text: 'Plan' });
@@ -470,6 +472,13 @@ export class JarvisView extends ItemView {
       let response: string;
 
       switch (mode) {
+        case 'smart':
+          response = await this.plugin.router.process(content);
+          break;
+        case 'dashboard':
+          const dashData = await this.plugin.dashboard.getDashboard();
+          response = this.plugin.dashboard.formatAsMarkdown(dashData);
+          break;
         case 'research':
           response = await this.handleResearch(content);
           break;

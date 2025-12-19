@@ -15,6 +15,8 @@ import { MemoryService } from './services/MemoryService';
 import { ReviewAssistantService } from './services/ReviewAssistantService';
 import { DashboardService } from './services/DashboardService';
 import { ToolRegistry } from './tools/ToolRegistry';
+import { RouterAgent } from './agents/RouterAgent';
+import { registerPKMTools } from './tools/PKMTools';
 
 interface JarvisSettings {
   ollamaEndpoint: string;
@@ -57,6 +59,7 @@ export default class JarvisPlugin extends Plugin {
   reviewAssistant: ReviewAssistantService;
   dashboard: DashboardService;
   toolRegistry: ToolRegistry;
+  router: RouterAgent;
   statusBarItem: HTMLElement;
 
   async onload() {
@@ -80,6 +83,10 @@ export default class JarvisPlugin extends Plugin {
     this.reviewAssistant = new ReviewAssistantService(this);
     this.dashboard = new DashboardService(this);
     this.toolRegistry = new ToolRegistry(this);
+    this.router = new RouterAgent(this);
+
+    // Register PKM tools
+    registerPKMTools(this.toolRegistry, this);
 
     // Initialize memory service
     this.memory.initialize().catch(err => {
