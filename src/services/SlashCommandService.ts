@@ -1058,6 +1058,297 @@ Make the question test understanding, not just recall. Be concise.`
       }
     });
 
+    // /remember - Remember a fact about the user
+    this.register({
+      name: 'remember',
+      aliases: ['mem', 'fact'],
+      description: 'Remember a fact about you',
+      usage: '/remember <category> <fact>',
+      execute: async (args, plugin) => {
+        if (!plugin.memory) {
+          return { content: '❌ Memory service not available.', type: 'error' };
+        }
+
+        const categories = ['preference', 'project', 'goal', 'context', 'relationship', 'habit', 'knowledge', 'personal'];
+
+        if (!args.trim()) {
+          return {
+            content: `## Remember a Fact\n\n**Categories:** ${categories.join(', ')}\n\n**Usage:** \`/remember <category> <fact>\`\n\nExample: \`/remember project I'm building a PKM assistant called Jarvis\``,
+            type: 'response'
+          };
+        }
+
+        const parts = args.trim().split(/\s+/);
+        const category = parts[0].toLowerCase();
+
+        if (!categories.includes(category)) {
+          return {
+            content: `❌ Invalid category: ${category}\n\nAvailable: ${categories.join(', ')}`,
+            type: 'error'
+          };
+        }
+
+        const fact = parts.slice(1).join(' ');
+        if (!fact) {
+          return { content: '❌ Please provide a fact to remember.', type: 'error' };
+        }
+
+        try {
+          const result = await plugin.memory.remember(fact, category as any, { source: 'manual', confidence: 0.95 });
+
+          return {
+            content: `✅ **Remembered!**\n\n> ${result.fact}\n\n*Category: ${result.category} | Confidence: ${Math.round(result.confidence * 100)}%*`,
+            type: 'response'
+          };
+        } catch (e) {
+          return { content: `❌ Failed to remember: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /recall - Recall facts relevant to a query
+    this.register({
+      name: 'recall',
+      aliases: ['memory', 'facts'],
+      description: 'Recall facts about you',
+      usage: '/recall [query]',
+      execute: async (args, plugin) => {
+        if (!plugin.memory) {
+          return { content: '❌ Memory service not available.', type: 'error' };
+        }
+
+        try {
+          let facts;
+          if (args.trim()) {
+            facts = await plugin.memory.recall(args.trim(), { limit: 10 });
+          } else {
+            facts = await plugin.memory.listAll();
+          }
+
+          if (facts.length === 0) {
+            return {
+              content: '🔍 No facts remembered yet.\n\nUse `/remember <category> <fact>` to teach me about you.',
+              type: 'response'
+            };
+          }
+
+          let response = `## Your Facts (${facts.length})\n\n`;
+
+          const byCategory = new Map<string, typeof facts>();
+          for (const fact of facts.slice(0, 20)) {
+            if (!byCategory.has(fact.category)) {
+              byCategory.set(fact.category, []);
+            }
+            byCategory.get(fact.category)!.push(fact);
+          }
+
+          for (const [category, catFacts] of byCategory) {
+            response += `### ${category.charAt(0).toUpperCase() + category.slice(1)}\n`;
+            for (const fact of catFacts) {
+              const confidence = Math.round(fact.confidence * 100);
+              response += `- ${fact.fact} *(${confidence}%)*\n`;
+            }
+            response += '\n';
+          }
+
+          return { content: response, type: 'response' };
+        } catch (e) {
+          return { content: `❌ Recall failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /forget - Forget a fact
+    this.register({
+      name: 'forget',
+      aliases: ['remove-fact', 'delete-fact'],
+      description: 'Forget facts matching a pattern',
+      usage: '/forget <pattern>',
+      execute: async (args, plugin) => {
+        if (!plugin.memory) {
+          return { content: '❌ Memory service not available.', type: 'error' };
+        }
+
+        if (!args.trim()) {
+          return {
+            content: '❌ Please provide a pattern to forget.\n\nUsage: `/forget <pattern>`\n\nExample: `/forget Jarvis` will forget all facts containing "Jarvis"',
+            type: 'error'
+          };
+        }
+
+        try {
+          const count = await plugin.memory.forgetByPattern(args.trim());
+
+          if (count === 0) {
+            return {
+              content: `🔍 No facts found matching "${args.trim()}"`,
+              type: 'response'
+            };
+          }
+
+          return {
+            content: `✅ Forgot ${count} fact(s) matching "${args.trim()}"`,
+            type: 'response'
+          };
+        } catch (e) {
+          return { content: `❌ Forget failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /review - Generate a review
+    this.register({
+      name: 'review',
+      aliases: ['reflect', 'retrospective'],
+      description: 'Generate daily or weekly review',
+      usage: '/review [daily|weekly]',
+      execute: async (args, plugin) => {
+        if (!plugin.reviewAssistant) {
+          return { content: '❌ Review assistant not available.', type: 'error' };
+        }
+
+        const type = args.trim().toLowerCase() || 'daily';
+
+        if (type !== 'daily' && type !== 'weekly') {
+          return {
+            content: '❌ Invalid review type. Use `daily` or `weekly`.',
+            type: 'error'
+          };
+        }
+
+        try {
+          new Notice(`Generating ${type} review...`);
+          const summary = await plugin.reviewAssistant.generateReviewSummary(type);
+
+          return { content: summary, type: 'response' };
+        } catch (e) {
+          return { content: `❌ Review generation failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /focus - Get suggested focus for today
+    this.register({
+      name: 'focus',
+      aliases: ['priority', 'next'],
+      description: 'Suggest what to focus on today',
+      usage: '/focus',
+      execute: async (args, plugin) => {
+        if (!plugin.reviewAssistant) {
+          return { content: '❌ Review assistant not available.', type: 'error' };
+        }
+
+        try {
+          new Notice('Analyzing your vault...');
+          const focus = await plugin.reviewAssistant.suggestTodaysFocus();
+
+          return {
+            content: `## Today's Suggested Focus\n\n${focus}`,
+            type: 'response'
+          };
+        } catch (e) {
+          return { content: `❌ Focus suggestion failed: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /prompts - Get review prompts
+    this.register({
+      name: 'prompts',
+      aliases: ['questions', 'reflection'],
+      description: 'Get reflection prompts',
+      usage: '/prompts [daily|weekly|monthly]',
+      execute: async (args, plugin) => {
+        if (!plugin.reviewAssistant) {
+          return { content: '❌ Review assistant not available.', type: 'error' };
+        }
+
+        const type = args.trim().toLowerCase() || 'daily';
+
+        if (!['daily', 'weekly', 'monthly'].includes(type)) {
+          return {
+            content: '❌ Invalid type. Use `daily`, `weekly`, or `monthly`.',
+            type: 'error'
+          };
+        }
+
+        try {
+          const prompts = await plugin.reviewAssistant.getReviewPrompts(type as any);
+
+          let response = `## ${type.charAt(0).toUpperCase() + type.slice(1)} Reflection Prompts\n\n`;
+          for (let i = 0; i < prompts.length; i++) {
+            response += `${i + 1}. ${prompts[i]}\n`;
+          }
+
+          return { content: response, type: 'response' };
+        } catch (e) {
+          return { content: `❌ Failed to get prompts: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
+    // /attention - Find notes needing attention
+    this.register({
+      name: 'attention',
+      aliases: ['stale', 'neglected'],
+      description: 'Find notes that need attention',
+      usage: '/attention',
+      execute: async (args, plugin) => {
+        if (!plugin.reviewAssistant) {
+          return { content: '❌ Review assistant not available.', type: 'error' };
+        }
+
+        try {
+          const notes = await plugin.reviewAssistant.findNotesNeedingAttention();
+
+          let response = `## Notes Needing Attention\n\n`;
+
+          if (notes.stale.length > 0) {
+            response += `### 📅 Stale Notes (${notes.stale.length})\n`;
+            response += `*Not modified in over 30 days*\n\n`;
+            for (const note of notes.stale.slice(0, 5)) {
+              response += `- [[${note}]]\n`;
+            }
+            if (notes.stale.length > 5) {
+              response += `*...and ${notes.stale.length - 5} more*\n`;
+            }
+            response += '\n';
+          }
+
+          if (notes.unfinished.length > 0) {
+            response += `### ⏳ Unfinished Notes (${notes.unfinished.length})\n`;
+            response += `*Very short or likely incomplete*\n\n`;
+            for (const note of notes.unfinished.slice(0, 5)) {
+              response += `- [[${note}]]\n`;
+            }
+            if (notes.unfinished.length > 5) {
+              response += `*...and ${notes.unfinished.length - 5} more*\n`;
+            }
+            response += '\n';
+          }
+
+          if (notes.unlinked.length > 0) {
+            response += `### 🔗 Unlinked Notes (${notes.unlinked.length})\n`;
+            response += `*No incoming or outgoing links*\n\n`;
+            for (const note of notes.unlinked.slice(0, 5)) {
+              response += `- [[${note}]]\n`;
+            }
+            if (notes.unlinked.length > 5) {
+              response += `*...and ${notes.unlinked.length - 5} more*\n`;
+            }
+          }
+
+          if (notes.stale.length === 0 && notes.unfinished.length === 0 && notes.unlinked.length === 0) {
+            response += '✅ All notes look good! Nothing needs immediate attention.';
+          }
+
+          return { content: response, type: 'response' };
+        } catch (e) {
+          return { content: `❌ Failed to find notes: ${e.message}`, type: 'error' };
+        }
+      }
+    });
+
     // /help - Show available commands
     this.register({
       name: 'help',

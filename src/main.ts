@@ -11,6 +11,8 @@ import { KnowledgeGraphService } from './services/KnowledgeGraphService';
 import { getErrorService, ErrorHandlingService } from './services/ErrorHandlingService';
 import { AgentOrchestrator } from './services/AgentOrchestrator';
 import { WritingCopilotService } from './services/WritingCopilotService';
+import { MemoryService } from './services/MemoryService';
+import { ReviewAssistantService } from './services/ReviewAssistantService';
 
 interface JarvisSettings {
   ollamaEndpoint: string;
@@ -49,6 +51,8 @@ export default class JarvisPlugin extends Plugin {
   errorService: ErrorHandlingService;
   agentOrchestrator: AgentOrchestrator;
   writingCopilot: WritingCopilotService;
+  memory: MemoryService;
+  reviewAssistant: ReviewAssistantService;
   statusBarItem: HTMLElement;
 
   async onload() {
@@ -68,6 +72,13 @@ export default class JarvisPlugin extends Plugin {
     // Initialize advanced AI services
     this.agentOrchestrator = new AgentOrchestrator(this);
     this.writingCopilot = new WritingCopilotService(this);
+    this.memory = new MemoryService(this);
+    this.reviewAssistant = new ReviewAssistantService(this);
+
+    // Initialize memory service
+    this.memory.initialize().catch(err => {
+      console.error('Failed to initialize memory:', err);
+    });
 
     // Register error callback for notifications
     this.errorService.onError((error) => {
@@ -183,6 +194,30 @@ export default class JarvisPlugin extends Plugin {
       callback: () => this.deepReasoningQuery()
     });
 
+    this.addCommand({
+      id: 'jarvis-daily-review',
+      name: 'Generate Daily Review',
+      callback: () => this.generateDailyReview()
+    });
+
+    this.addCommand({
+      id: 'jarvis-weekly-review',
+      name: 'Generate Weekly Review',
+      callback: () => this.generateWeeklyReview()
+    });
+
+    this.addCommand({
+      id: 'jarvis-memory-stats',
+      name: 'Show Memory Stats',
+      callback: () => this.showMemoryStats()
+    });
+
+    this.addCommand({
+      id: 'jarvis-suggest-focus',
+      name: 'Suggest Daily Focus',
+      callback: () => this.suggestDailyFocus()
+    });
+
     // Add settings tab
     this.addSettingTab(new JarvisSettingTab(this.app, this));
 
@@ -216,6 +251,8 @@ export default class JarvisPlugin extends Plugin {
     this.slashCommands = new SlashCommandService(this);
     this.agentOrchestrator = new AgentOrchestrator(this);
     this.writingCopilot = new WritingCopilotService(this);
+    this.memory = new MemoryService(this);
+    this.reviewAssistant = new ReviewAssistantService(this);
   }
 
   async activateView() {
@@ -515,6 +552,95 @@ export default class JarvisPlugin extends Plugin {
       this.updateStatusBar('Ready');
     } catch (error) {
       new Notice('Reasoning query failed');
+      console.error(error);
+      this.updateStatusBar('Ready');
+    }
+  }
+
+  async generateDailyReview() {
+    this.updateStatusBar('Generating review...');
+    new Notice('Generating daily review...');
+
+    try {
+      const summary = await this.reviewAssistant.generateReviewSummary('daily');
+      const date = new Date().toISOString().split('T')[0];
+      const path = `0-Inbox/Daily-Review-${date}.md`;
+
+      await this.vault.writeFile(path, summary);
+      new Notice(`Daily review created: ${path}`);
+      this.updateStatusBar('Ready');
+
+      // Open the review note
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file && file instanceof TFile) {
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+      }
+    } catch (error) {
+      new Notice('Failed to generate daily review');
+      console.error(error);
+      this.updateStatusBar('Ready');
+    }
+  }
+
+  async generateWeeklyReview() {
+    this.updateStatusBar('Generating review...');
+    new Notice('Generating weekly review...');
+
+    try {
+      const summary = await this.reviewAssistant.generateReviewSummary('weekly');
+      const date = new Date().toISOString().split('T')[0];
+      const path = `0-Inbox/Weekly-Review-${date}.md`;
+
+      await this.vault.writeFile(path, summary);
+      new Notice(`Weekly review created: ${path}`);
+      this.updateStatusBar('Ready');
+
+      // Open the review note
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file && file instanceof TFile) {
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+      }
+    } catch (error) {
+      new Notice('Failed to generate weekly review');
+      console.error(error);
+      this.updateStatusBar('Ready');
+    }
+  }
+
+  async showMemoryStats() {
+    try {
+      const stats = await this.memory.getStats();
+
+      let message = `Memory Stats:\n`;
+      message += `• Total facts: ${stats.totalFacts}\n`;
+      message += `• Avg confidence: ${Math.round(stats.avgConfidence * 100)}%\n`;
+
+      for (const [cat, count] of Object.entries(stats.byCategory)) {
+        message += `• ${cat}: ${count}\n`;
+      }
+
+      new Notice(message, 8000);
+    } catch (error) {
+      new Notice('Failed to get memory stats');
+      console.error(error);
+    }
+  }
+
+  async suggestDailyFocus() {
+    this.updateStatusBar('Analyzing...');
+    new Notice('Analyzing your vault for focus suggestion...');
+
+    try {
+      const focus = await this.reviewAssistant.suggestTodaysFocus();
+
+      // Show in a notice and also open Jarvis view
+      await this.activateView();
+      new Notice('Focus suggestion ready! Check Jarvis panel.');
+      this.updateStatusBar('Ready');
+    } catch (error) {
+      new Notice('Failed to suggest focus');
       console.error(error);
       this.updateStatusBar('Ready');
     }
