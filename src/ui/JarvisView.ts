@@ -486,9 +486,12 @@ export class JarvisView extends ItemView {
           response = await this.handleRAGSearch(content);
           break;
         default:
-          const messages: ChatMessage[] = this.buildConversationHistory();
+          const messages: ChatMessage[] = await this.buildConversationHistory(content);
           messages.push({ role: 'user', content });
           response = await this.plugin.ollama.chat(messages);
+
+          // Extract facts from user message in background (non-blocking)
+          this.extractFactsFromMessage(content);
       }
 
       loadingEl.remove();
@@ -504,8 +507,8 @@ export class JarvisView extends ItemView {
     }
   }
 
-  private buildConversationHistory(): ChatMessage[] {
-    const systemPrompt = `You are Jarvis, an AI assistant integrated into Obsidian. You help with:
+  private async buildConversationHistory(currentMessage: string): Promise<ChatMessage[]> {
+    let systemPrompt = `You are Jarvis, an AI assistant integrated into Obsidian. You help with:
 - Answering questions about notes and knowledge
 - Planning and task management
 - Summarizing content
@@ -513,6 +516,18 @@ export class JarvisView extends ItemView {
 - General knowledge assistance
 
 Be concise, helpful, and format responses with Markdown when appropriate.`;
+
+    // Add memory context if available
+    if (this.plugin.memory) {
+      try {
+        const memoryContext = await this.plugin.memory.getContextForChat(currentMessage);
+        if (memoryContext) {
+          systemPrompt += memoryContext;
+        }
+      } catch {
+        // Memory service might not be initialized yet
+      }
+    }
 
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt }
@@ -528,6 +543,17 @@ Be concise, helpful, and format responses with Markdown when appropriate.`;
     }
 
     return messages;
+  }
+
+  private async extractFactsFromMessage(message: string): Promise<void> {
+    if (!this.plugin.memory) return;
+
+    try {
+      // Extract facts in the background
+      await this.plugin.memory.extractFacts(message);
+    } catch {
+      // Silent failure - fact extraction is optional
+    }
   }
 
   private async addCurrentNoteContext(): Promise<void> {
