@@ -13,6 +13,8 @@ import { AgentOrchestrator } from './services/AgentOrchestrator';
 import { WritingCopilotService } from './services/WritingCopilotService';
 import { MemoryService } from './services/MemoryService';
 import { ReviewAssistantService } from './services/ReviewAssistantService';
+import { DashboardService } from './services/DashboardService';
+import { ToolRegistry } from './tools/ToolRegistry';
 
 interface JarvisSettings {
   ollamaEndpoint: string;
@@ -53,6 +55,8 @@ export default class JarvisPlugin extends Plugin {
   writingCopilot: WritingCopilotService;
   memory: MemoryService;
   reviewAssistant: ReviewAssistantService;
+  dashboard: DashboardService;
+  toolRegistry: ToolRegistry;
   statusBarItem: HTMLElement;
 
   async onload() {
@@ -74,6 +78,8 @@ export default class JarvisPlugin extends Plugin {
     this.writingCopilot = new WritingCopilotService(this);
     this.memory = new MemoryService(this);
     this.reviewAssistant = new ReviewAssistantService(this);
+    this.dashboard = new DashboardService(this);
+    this.toolRegistry = new ToolRegistry(this);
 
     // Initialize memory service
     this.memory.initialize().catch(err => {
