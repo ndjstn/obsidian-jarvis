@@ -234,21 +234,25 @@ export class JarvisView extends ItemView {
       }
 
       .jarvis-copy-btn {
-        padding: 4px;
-        background: transparent;
-        border: none;
+        padding: 4px 8px;
+        background: var(--background-secondary);
+        border: 1px solid var(--background-modifier-border);
         cursor: pointer;
-        opacity: 0.5;
+        opacity: 0.8;
         border-radius: 4px;
         display: flex;
         align-items: center;
         justify-content: center;
         transition: all 0.2s ease;
+        font-size: 11px;
+        gap: 4px;
       }
 
       .jarvis-copy-btn:hover {
         opacity: 1;
-        background: var(--background-modifier-hover);
+        background: var(--interactive-accent);
+        color: var(--text-on-accent);
+        border-color: var(--interactive-accent);
       }
 
       .jarvis-copy-btn.jarvis-copy-success {

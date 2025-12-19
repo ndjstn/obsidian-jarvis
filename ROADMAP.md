@@ -397,11 +397,12 @@ Visible reasoning for complex problems.
 - [x] Daily briefing generation
 - [x] Format transformation
 
-### Phase 4: Memory & Context (Next)
-- [ ] Long-term memory system
-- [ ] Conversation persistence
-- [ ] User fact extraction
-- [ ] Context-aware suggestions
+### Phase 4: Memory & Context (v0.6.0) ✅
+- [x] Long-term memory system (MemoryService)
+- [x] User fact extraction from conversations
+- [x] Context-aware recall with relevance scoring
+- [x] Review assistant with daily/weekly reviews
+- [x] Slash commands: /remember, /recall, /forget, /review, /focus, /prompts, /attention
 
 ### Phase 5: Voice & Accessibility
 - [ ] Voice input (Whisper)
@@ -443,5 +444,5 @@ Selected text → Jarvis:
 ---
 
 *Last updated: 2025-12-18*
-*Current version: v0.5.0*
+*Current version: v0.6.0*
 *Research sources: a16z-infra/companion-app, SingularityMan/vector_companion, yukiarimo/yuna-ai*
